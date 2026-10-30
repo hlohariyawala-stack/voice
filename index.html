@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoiceDoc AI - PDF Reader</title>
+    <!-- PDF.js library to parse PDFs without a backend -->
+    <script src="https://cloudflare.com"></script>
+    <style>
+        body { font-family: 'Arial', sans-serif; background: #f4f7f6; margin: 40px; color: #333; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; }
+        h2 { color: #0f62fe; margin-bottom: 5px; }
+        .subtitle { color: #666; font-size: 14px; margin-bottom: 25px; }
+        .badge { background: #e0edf5; color: #0f62fe; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+        .upload-box { border: 2px dashed #0f62fe; padding: 30px; border-radius: 6px; background: #f9faff; cursor: pointer; margin-bottom: 20px; }
+        button { padding: 12px 24px; background: #24a148; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 16px; width: 100%; display: none; }
+        button:hover { background: #198038; }
+        #status { font-weight: bold; color: #666; margin-top: 15px; }
+        #audioPlayer { margin-top: 20px; width: 100%; display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>☁️ VoiceDoc AI Reader</h2>
+        <div class="subtitle">Powered by <span class="badge">IBM Watson AI Text-to-Speech</span></div>
+        
+        <div class="upload-box" onclick="document.getElementById('pdfFile').click()">
+            <p>📄 Click here to upload your PDF file</p>
+            <input type="file" id="pdfFile" accept="application/pdf" style="display:none;" onchange="handlePDFUpload(event)">
+        </div>
+
+        <div id="status">Waiting for file...</div>
+        <button id="readBtn" onclick="sendToIBMWatson()">🔊 Read PDF Out Loud</button>
+        <audio id="audioPlayer" controls></audio>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cloudflare.com';
+        
+        // CONFIGURATION: Paste your IBM Watson Details here
+        const WATSON_URL = "https://api.au-syd.text-to-speech.watson.cloud.ibm.com/instances/3cb86e21-1c0a-456b-b30d-c33488478bb3"; 
+        const WATSON_APIKEY = "sWUSLEmnJKFBfuIjdE58wct23KfLntrWJbwX4NakbdEX";
+        
+        let extractedText = "";
+
+        // Function to extract raw text out of the uploaded PDF file
+        async function handlePDFUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            document.getElementById('status').innerText = "Extracting text from PDF...";
+            
+            const reader = new FileReader();
+            reader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                let text = "";
+                
+                // Read up to the first 2 pages to save processing space
+                const pagesToRead = Math.min(pdf.numPages, 2);
+                for (let i = 1; i <= pagesToRead; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    text += content.items.map(item => item.str).join(" ") + " ";
+                }
+                
+                extractedText = text.trim().substring(0, 1000); // Limit character chunk for free tier safety
+                document.getElementById('status').innerText = `Successfully parsed ${pagesToRead} page(s). Ready to stream audio!`;
+                document.getElementById('readBtn').style.display = 'block';
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Function to send text to IBM Watson AI and receive speech audio
+        async function sendToIBMWatson() {
+            if (!extractedText) return;
+            document.getElementById('status').innerText = "IBM Watson is converting text to voice...";
+            
+            try {
+                // Call IBM Watson Synthesize Endpoint
+                const response = await fetch(`${WATSON_URL}/v1/synthesize?voice=en-US_AllisonV3Voice`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Basic ' + btoa('apikey:' + WATSON_APIKEY),
+                        'Content-Type': 'application/json',
+                        'Accept': 'audio/wav'
+                    },
+                    body: JSON.stringify({ text: extractedText })
+                });
+
+                if (!response.ok) throw new Error("IBM Cloud rejected request.");
+
+                const blob = await response.blob();
+                const audioUrl = URL.createObjectURL(blob);
+                
+                const player = document.getElementById('audioPlayer');
+                player.src = audioUrl;
+                player.style.display = 'block';
+                player.play();
+                
+                document.getElementById('status').innerText = "Playing Audio Stream!";
+            } catch (err) {
+                document.getElementById('status').innerText = "Error connecting to IBM Watson AI.";
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
